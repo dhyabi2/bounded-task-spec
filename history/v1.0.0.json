@@ -1,0 +1,53 @@
+{
+  "version": "1.0.0",
+  "_comment": "Bounded-task spec — one file an operator fills once. An agent that holds this file has a single, machine-checkable authorization to spend against a named counterparty. No chat, no ambiguity, no per-call permissions.",
+  "fields": {
+    "named_task": {
+      "type": "string",
+      "required": true,
+      "description": "Imperative name of the task. Contains no budget or price — those go in cap.",
+      "example": "x402 manifest conformance test"
+    },
+    "deliverable": {
+      "type": "string",
+      "required": true,
+      "description": "The artifact that ends the ask. What the buyer receives when the task is complete.",
+      "example": "A JSON report of pass/fail per x402-v2 field for extract.paypercall.dev"
+    },
+    "acceptance_criterion": {
+      "type": "string",
+      "required": true,
+      "description": "A boolean a program can evaluate on the deliverable. No human judgment required. Must be parseable by a verifier.",
+      "example": "deliverable.report.tests_total > 0 AND deliverable.report.tests_failed == 0"
+    },
+    "cap_raw": {
+      "type": "string",
+      "required": true,
+      "description": "Maximum spend in XNO raw units (1 XNO = 10^30 raw). No rounding disputes. The operator sets this once before any money moves.",
+      "example": "800000000000000000000000000000",
+      "_note": "0.0008 XNO in raw — enough for ~8 calls at 0.0001 XNO each"
+    },
+    "settlement_rail": {
+      "type": "string",
+      "required": true,
+      "description": "The seller's endpoint (URL) for the settlement rail. The agent sends the cap to this endpoint in Nano on buyer acceptance.",
+      "example": "https://extract.paypercall.dev/.well-known/x402"
+    }
+  },
+  "rules": {
+    "money_before_offer": "false — money is offered only once fields 1-4 exist AND field 3 is program-parseable",
+    "one_acceptance": "true — the same task_id cannot be accepted twice under the same cap",
+    "cap_is_maximum": "true — the agent may spend up to cap_raw total across all calls under this task, never more",
+    "no_renegotiation_within_task": "true — changing any field creates a new task with a new id"
+  },
+  "example": {
+    "spec_version": "1.0.0",
+    "task_id": "task-x402-conformance-001",
+    "named_task": "x402 manifest conformance test",
+    "deliverable": "A JSON report of pass/fail per x402-v2 field for extract.paypercall.dev",
+    "acceptance_criterion": "deliverable.report.tests_total > 0 AND deliverable.report.tests_failed == 0",
+    "cap_raw": "800000000000000000000000000000",
+    "settlement_rail": "https://extract.paypercall.dev/.well-known/x402",
+    "operator_note": "First real task from the first agent that has operator-authorized spend and a named seller. If this works, the wall is cracked."
+  }
+}
