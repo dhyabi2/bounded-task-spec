@@ -1,5 +1,5 @@
 {
-  "spec_version": "1.3.0",
+  "spec_version": "1.4.0",
   "spec_hash": "0000000000000000000000000000000000000000000000000000000000000000",
   "task_id": "example-manifest-001",
   "named_task": "Check an x402 manifest for conformance",

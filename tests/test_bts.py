@@ -257,5 +257,93 @@ class Hygiene(unittest.TestCase):
             self.assertEqual(bts.load(path)["spec_hash"], bts.spec_hash(), path)
 
 
+class Artifacts(unittest.TestCase):
+    """1.4.0: declared artifacts, the PASS_SUPERSET verdict and the surplus decision window (spawn3's predicate)."""
+
+    def setUp(self):
+        self.task = bts.load(ex("valid", "manifest-artifacts.json"))
+        self.exact = bts.load_evidence(ex("evidence", "artifacts-exact.json"))
+        self.superset = bts.load_evidence(ex("evidence", "artifacts-superset.json"))
+
+    def test_exact_delivery_passes(self):
+        self.assertEqual(bts.evaluate(self.task, 200, self.exact), (bts.PASS, []))
+
+    def test_surplus_with_passing_predicate_is_pass_superset(self):
+        verdict, reasons = bts.evaluate(self.task, 200, self.superset)
+        self.assertEqual(verdict, bts.PASS_SUPERSET)
+        self.assertTrue(any("extra.bin" in r and "quarantined" in r for r in reasons), reasons)
+        self.assertTrue(any("72" in r and "discard" in r for r in reasons), reasons)
+
+    def test_surplus_never_rescues_a_failing_predicate(self):
+        bad = copy.deepcopy(self.superset)
+        bad["report"]["tests_failed"] = 1
+        self.assertEqual(bts.evaluate(self.task, 200, bad)[0], bts.FAIL)
+
+    def test_missing_declared_artifact_fails(self):
+        ev = copy.deepcopy(self.exact)
+        ev["artifacts"] = [a for a in ev["artifacts"] if a["name"] != "report.json"]
+        self.assertEqual(bts.evaluate(self.task, 200, ev)[0], bts.FAIL)
+
+    def test_pinned_hash_must_match(self):
+        ev = copy.deepcopy(self.exact)
+        for a in ev["artifacts"]:
+            if a["name"] == "schema.json":
+                a["sha256"] = "0" * 64
+        self.assertEqual(bts.evaluate(self.task, 200, ev)[0], bts.FAIL)
+
+    def test_malformed_artifact_lists_fail(self):
+        for artifacts in ("x", [{"name": "report.json"}], [{"name": "a", "sha256": "A" * 64}],
+                          self.exact["artifacts"] + self.exact["artifacts"][:1]):
+            ev = dict(self.exact, artifacts=artifacts)
+            self.assertEqual(bts.evaluate(self.task, 200, ev)[0], bts.FAIL, artifacts)
+        ev = dict(self.exact)
+        del ev["artifacts"]
+        self.assertEqual(bts.evaluate(self.task, 200, ev)[0], bts.FAIL)
+
+    def test_other_track_is_still_unknown(self):
+        self.assertEqual(bts.evaluate(self.task, 402, self.superset)[0], bts.UNKNOWN)
+
+    def test_the_surplus_default_is_written_in_the_task(self):
+        for key in ("decision_window_hours", "on_expiry"):
+            t = copy.deepcopy(self.task)
+            del t["acceptance"]["artifacts"]["surplus"][key]
+            self.assertIn(f"$.acceptance.artifacts.surplus.{key}: required", bts.validate(t))
+        t = copy.deepcopy(self.task)
+        del t["acceptance"]["artifacts"]["surplus"]
+        self.assertIn("$.acceptance.artifacts.surplus: required", bts.validate(t))
+        for hours in (0, 8761, "72"):
+            t = copy.deepcopy(self.task)
+            t["acceptance"]["artifacts"]["surplus"]["decision_window_hours"] = hours
+            self.assertTrue(bts.validate(t), hours)
+        t["acceptance"]["artifacts"]["surplus"] = {"decision_window_hours": 72, "on_expiry": "keep"}
+        self.assertTrue(bts.validate(t))
+
+    def test_declared_list_rules(self):
+        cases = ([], [{"name": "a"}, {"name": "a"}], [{"name": ""}], [{"name": "a", "sha256": "xyz"}],
+                 [{"name": "a", "x": 1}])
+        for declared in cases:
+            t = copy.deepcopy(self.task)
+            t["acceptance"]["artifacts"]["declared"] = declared
+            self.assertTrue(bts.validate(t), declared)
+
+    def test_artifacts_belong_to_the_manifest_track_only(self):
+        self.assertTrue(bts.validate(bts.load(ex("invalid", "artifacts-on-payment-track.json"))))
+
+    def test_cli_exit_code_for_pass_superset(self):
+        t = ex("valid", "manifest-artifacts.json")
+        out = cli("evaluate", t, "200", ex("evidence", "artifacts-superset.json"))
+        self.assertEqual((out.returncode, out.stdout.splitlines()[0]), (4, "PASS_SUPERSET"))
+        self.assertEqual(cli("evaluate", t, "200", ex("evidence", "artifacts-exact.json")).returncode, 0)
+
+    def test_pass_superset_is_not_pass(self):
+        self.assertNotEqual(bts.PASS_SUPERSET, bts.PASS)
+
+    def test_the_1_3_0_spec_is_kept_verbatim(self):
+        old = bts.load(os.path.join(ROOT, "history", "v1.3.0", "bounded-task.schema.json"))
+        self.assertEqual(bts.sha256_of(old), "bfca60bb1e7e02ef9c107827104b22a5f77fe6cdb26fcd9cf5a03aacee3cebfe")
+        digest = hashlib.sha256(open(os.path.join(ROOT, "history", "v1.3.0", "SPEC.md"), "rb").read()).hexdigest()
+        self.assertEqual(digest, "8e30984fafbad5aad3a64246d693dda8f366b4c4d97a6ceed3f67e68dbda0040")
+
+
 if __name__ == "__main__":
     unittest.main()

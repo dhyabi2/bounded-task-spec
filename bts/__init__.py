@@ -11,9 +11,9 @@ import json
 import os
 import re
 
-SPEC_VERSION = "1.3.0"
+SPEC_VERSION = "1.4.0"
 SCHEMA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "schema", "bounded-task.schema.json")
-PASS, FAIL, UNKNOWN = "PASS", "FAIL", "UNKNOWN"
+PASS, FAIL, UNKNOWN, PASS_SUPERSET = "PASS", "FAIL", "UNKNOWN", "PASS_SUPERSET"
 MANIFEST_STATUSES = frozenset({200})
 PAYMENT_STATUSES = frozenset({402, 426})
 
@@ -147,6 +147,8 @@ def _walk(node, value, where, errors):
             if name in value:
                 _walk(sub, value[name], f"{where}.{name}", errors)
     if isinstance(value, list):
+        if len(value) < node.get("minItems", 0):
+            errors.append(f"{where}: fewer than {node['minItems']} items")
         if "maxItems" in node and len(value) > node["maxItems"]:
             errors.append(f"{where}: more than {node['maxItems']} items")
         if "items" in node:
@@ -201,6 +203,15 @@ def validate(task, schema=None):
     if (isinstance(task.get("acceptance"), dict) and task["acceptance"].get("track") == "manifest"
             and isinstance(checks, list) and not checks):
         errors.append("$.acceptance.checks: the manifest track needs at least one check")
+    artifacts = task["acceptance"].get("artifacts") if isinstance(task.get("acceptance"), dict) else None
+    if isinstance(artifacts, dict):
+        if task["acceptance"].get("track") != "manifest":
+            errors.append("$.acceptance.artifacts: only the manifest track declares artifacts")
+        declared = artifacts.get("declared")
+        if isinstance(declared, list):
+            names = [d.get("name") for d in declared if isinstance(d, dict)]
+            if len(names) != len(set(names)):
+                errors.append("$.acceptance.artifacts.declared: names must be unique")
     return errors
 
 
@@ -279,8 +290,37 @@ def _receipt_problems(task, receipt):
     return out
 
 
+_SHA256 = re.compile(r"[0-9a-f]{64}")
+
+
+def _artifact_problems(spec, evidence):
+    """(problems, surplus) for the declared artifacts; surplus is the delivered items nobody declared."""
+    delivered = _resolve(evidence, spec["path"])
+    if not isinstance(delivered, list):
+        return [f"no artifact list at {spec['path']}"], []
+    if not all(isinstance(a, dict) and isinstance(a.get("name"), str) and a["name"]
+               and isinstance(a.get("sha256"), str) and _SHA256.fullmatch(a["sha256"]) for a in delivered):
+        return ["every delivered artifact needs a name and a lowercase sha256"], []
+    by_name = {a["name"]: a["sha256"] for a in delivered}
+    if len(by_name) != len(delivered):
+        return ["an artifact name is delivered twice"], []
+    problems = []
+    for d in spec["declared"]:
+        if d["name"] not in by_name:
+            problems.append(f"declared artifact not delivered: {d['name']}")
+        elif "sha256" in d and by_name[d["name"]] != d["sha256"]:
+            problems.append(f"declared artifact has other bytes than pinned: {d['name']}")
+    declared = {d["name"] for d in spec["declared"]}
+    return problems, [a for a in delivered if a["name"] not in declared]
+
+
 def evaluate(task, status, evidence, observed_at=None):
-    """Return (verdict, reasons). verdict is PASS, FAIL or UNKNOWN; UNKNOWN never releases settlement."""
+    """Return (verdict, reasons). verdict is PASS, PASS_SUPERSET, FAIL or UNKNOWN.
+
+    PASS_SUPERSET: the checks hold and every declared artifact arrived, plus artifacts nobody declared. Settlement
+    is released for the declared ones; the surplus is quarantined until the buyer ratifies or rejects it within the
+    task's decision window, and the task's on_expiry applies after that. UNKNOWN never releases settlement.
+    """
     errors = validate(task)
     if errors:
         return FAIL, ["task is invalid"] + errors
@@ -297,4 +337,15 @@ def evaluate(task, status, evidence, observed_at=None):
     for i, check in enumerate(task["acceptance"]["checks"]):
         if not run_check(check, evidence):
             reasons.append(f"check {i} failed: {check['path']} {check['op']} {check.get('value', '')!r}".rstrip())
-    return (FAIL, reasons) if reasons else (PASS, [])
+    spec = task["acceptance"].get("artifacts")
+    surplus = []
+    if spec is not None:
+        problems, surplus = _artifact_problems(spec, evidence)
+        reasons += problems
+    if reasons:
+        return FAIL, reasons
+    if surplus:
+        window = spec["surplus"]
+        return PASS_SUPERSET, [f"surplus quarantined: {a['name']} sha256 {a['sha256']}" for a in surplus] + [
+            f"buyer ratifies or rejects within {window['decision_window_hours']} h; at expiry: {window['on_expiry']}"]
+    return PASS, []
