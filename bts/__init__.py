@@ -111,6 +111,19 @@ _TYPES = {
 }
 
 
+#: A bare ``$`` in a pattern, skipping escapes and character classes (where ``$`` is literal).
+_BARE_DOLLAR = re.compile(r"\\.|\[(?:\\.|[^\]\\])*\]|(\$)", re.DOTALL)
+
+
+def _ecma_pattern(pattern):
+    """A JSON Schema ``pattern`` is an ECMA-262 regex, where ``$`` matches only at the very end.
+
+    Python's ``$`` also matches just before a trailing newline, so ``^[0-9a-f]{64}$`` would
+    accept a 64-hex string with a ``\n`` glued on. Translate a bare ``$`` to ``\Z``.
+    """
+    return _BARE_DOLLAR.sub(lambda m: r"\Z" if m.group(1) else m.group(0), pattern)
+
+
 def _walk(node, value, where, errors):
     """Interpret the subset of JSON Schema the pinned schema uses."""
     if "const" in node and value != node["const"]:
@@ -128,7 +141,7 @@ def _walk(node, value, where, errors):
             errors.append(f"{where}: must not be empty" if node.get("minLength") == 1 else f"{where}: too short")
         if "maxLength" in node and len(value) > node["maxLength"]:
             errors.append(f"{where}: longer than {node['maxLength']} characters")
-        if "pattern" in node and not re.search(node["pattern"], value):
+        if "pattern" in node and not re.search(_ecma_pattern(node["pattern"]), value):
             errors.append(f"{where}: does not match {node['pattern']}")
     if kind == "integer":
         if "minimum" in node and value < node["minimum"]:

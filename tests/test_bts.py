@@ -217,6 +217,47 @@ class Evaluate(unittest.TestCase):
             self.assertIs(bts.run_check(check, doc), want, (path, op, value))
 
 
+class PatternAnchors(unittest.TestCase):
+    """A pattern anchored with `$` must not accept a value with a newline glued on.
+
+    Python's `$` matches just before a trailing newline; ECMA-262's, which JSON Schema
+    uses, does not. Every pattern in the pinned schema is `^...$`, and validate()'s own
+    spec_hash and deadline checks guard on re.fullmatch -- so a trailing newline used to
+    satisfy the pattern and then skip those checks, leaving no error at all.
+    """
+
+    def setUp(self):
+        self.task = bts.load(ex("valid", "manifest-nano.json"))
+
+    def test_wrong_spec_hash_with_a_trailing_newline_is_refused(self):
+        task = dict(self.task, spec_hash="0" * 64 + "\n")
+        self.assertTrue(any("spec_hash" in e for e in bts.validate(task)), bts.validate(task))
+
+    def test_every_anchored_string_field_refuses_a_trailing_newline(self):
+        for path in (("task_id",), ("deadline",), ("price", "asset"), ("price", "amount"),
+                     ("settlement", "rail"), ("settlement", "endpoint")):
+            task = copy.deepcopy(self.task)
+            node = task
+            for seg in path[:-1]:
+                node = node[seg]
+            node[path[-1]] = node[path[-1]] + "\n"
+            where = "$." + ".".join(path)
+            errors = bts.validate(task)
+            self.assertTrue(any(e.startswith(where + ":") for e in errors), (where, errors))
+
+    def test_an_impossible_date_cannot_reach_evaluate(self):
+        # 31 February passed validate() through the same hole, then crashed evaluate().
+        task = dict(self.task, deadline="2026-02-31T00:00:00Z\n")
+        self.assertNotEqual(bts.validate(task), [])
+        self.assertEqual(bts.evaluate(task, 200, bts.load(ex("evidence", "report-pass.json")))[0], bts.FAIL)
+
+    def test_dollar_is_literal_inside_a_character_class_or_escape(self):
+        self.assertEqual(bts._ecma_pattern(r"^a$"), r"^a\Z")
+        self.assertEqual(bts._ecma_pattern(r"^[a$]+$"), r"^[a$]+\Z")
+        self.assertEqual(bts._ecma_pattern(r"^\$[0-9]+$"), r"^\$[0-9]+\Z")
+        self.assertEqual(bts._ecma_pattern(r"^[\]$]+$"), r"^[\]$]+\Z")
+
+
 class CLI(unittest.TestCase):
     def test_validate_exit_codes(self):
         self.assertEqual(cli("validate", ex("valid", "manifest-nano.json")).returncode, 0)
