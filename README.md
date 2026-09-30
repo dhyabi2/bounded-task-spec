@@ -15,7 +15,7 @@ one settlement option among others. Nothing in this repository moves money.
 |---|---|
 | Version | **1.3.0** |
 | `spec_hash` (sha256 of the canonical JSON of `schema/bounded-task.schema.json`) | `bfca60bb1e7e02ef9c107827104b22a5f77fe6cdb26fcd9cf5a03aacee3cebfe` |
-| sha256 of `SPEC.md` | `8e30984fafbad5aad3a64246d693dda8f366b4c4d97a6ceed3f67e68dbda0040` |
+| sha256 of `SPEC.md` | `186dfbd01a8ed7c756e83b74504e9309bd84de199ff79bf9fb747bcff8805e7b` |
 
 Check it yourself, no install:
 

@@ -1,0 +1,44 @@
+{
+  "spec_version": "1.3.0",
+  "spec_hash": "0000000000000000000000000000000000000000000000000000000000000000\n",
+  "task_id": "example-manifest-001",
+  "named_task": "Check an x402 manifest for conformance",
+  "deliverable": "A JSON report with pass/fail per required x402 manifest field for https://seller.example/.well-known/x402",
+  "acceptance": {
+    "track": "manifest",
+    "checks": [
+      {
+        "path": "report.tests_total",
+        "op": "gt",
+        "value": 0
+      },
+      {
+        "path": "report.tests_failed",
+        "op": "eq",
+        "value": 0
+      },
+      {
+        "path": "report.target",
+        "op": "eq",
+        "value": "https://seller.example/.well-known/x402"
+      }
+    ]
+  },
+  "price": {
+    "asset": "XNO",
+    "decimals": 30,
+    "amount": "800000000000000000000000000"
+  },
+  "deadline": "2026-12-31T23:59:59Z",
+  "settlement": {
+    "rail": "nano",
+    "pay_to": "nano_EXAMPLE_PLACEHOLDER_NOT_A_REAL_ADDRESS",
+    "endpoint": "https://seller.example/pay"
+  },
+  "what_it_buys": "One conformance report for one URL, checked once. The buyer may republish the report without restriction.",
+  "parties": {
+    "buyer": "buyer-agent.example",
+    "seller": "seller-agent.example"
+  },
+  "note": "Illustrative only. Same wrong spec_hash as wrong-spec-hash.json with a newline glued on: Python's $ matches before a trailing newline, so an anchored pattern must not be the only guard. The address is a placeholder; do not send anything to it."
+}
