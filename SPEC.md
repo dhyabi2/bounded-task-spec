@@ -27,6 +27,10 @@ cite the `task_hash`.
 
 Unknown fields MUST be rejected. Floats MUST NOT appear anywhere in a task; amounts are integer strings.
 
+The `pattern` constraints in the schema are ECMA-262 regular expressions, in which `$` matches only at the
+very end of the string. An implementation whose `$` also matches before a trailing newline (Python's does)
+MUST anchor with end-of-input instead, or `^[0-9a-f]{64}$` accepts a 64-hex value with a `\n` glued on.
+
 | Field | Type | Required | Meaning |
 |---|---|---|---|
 | `spec_version` | string, const `"1.4.0"` | yes | Version of this spec the task was written against. |
