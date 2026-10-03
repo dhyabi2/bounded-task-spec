@@ -1,16 +1,35 @@
 {
   "spec_version": "1.4.0",
   "spec_hash": "6ea18ba671119d9b2fe1f0cbfde4f26954e1050743fa307eaac81c2c580ee279",
-  "task_id": "example-payment-001",
+  "task_id": "example-invalid-artifacts-payment",
   "named_task": "Unlock one paid API call",
   "deliverable": "One successful response from https://seller.example/api/v1/extract after the 402 is paid",
   "acceptance": {
     "track": "payment",
     "checks": [
-      {"path": "tx_id", "op": "exists"}
-    ]
+      {
+        "path": "tx_id",
+        "op": "exists"
+      }
+    ],
+    "artifacts": {
+      "path": "artifacts",
+      "declared": [
+        {
+          "name": "report.json"
+        }
+      ],
+      "surplus": {
+        "decision_window_hours": 72,
+        "on_expiry": "discard"
+      }
+    }
   },
-  "price": {"asset": "USDC", "decimals": 6, "amount": "10000"},
+  "price": {
+    "asset": "USDC",
+    "decimals": 6,
+    "amount": "10000"
+  },
   "deadline": "2026-12-31T23:59:59Z",
   "settlement": {
     "rail": "x402-evm",

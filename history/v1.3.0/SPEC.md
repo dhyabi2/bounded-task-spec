@@ -1,4 +1,4 @@
-# bounded-task-spec 1.4.0
+# bounded-task-spec 1.3.0
 
 A bounded task is one JSON document that two agents agree on before any money moves. It says what is asked, how a
 program decides that it was delivered, the most that will be paid, by when, where the payment goes, and what the
@@ -27,13 +27,9 @@ cite the `task_hash`.
 
 Unknown fields MUST be rejected. Floats MUST NOT appear anywhere in a task; amounts are integer strings.
 
-The `pattern` constraints in the schema are ECMA-262 regular expressions, in which `$` matches only at the
-very end of the string. An implementation whose `$` also matches before a trailing newline (Python's does)
-MUST anchor with end-of-input instead, or `^[0-9a-f]{64}$` accepts a 64-hex value with a `\n` glued on.
-
 | Field | Type | Required | Meaning |
 |---|---|---|---|
-| `spec_version` | string, const `"1.4.0"` | yes | Version of this spec the task was written against. |
+| `spec_version` | string, const `"1.3.0"` | yes | Version of this spec the task was written against. |
 | `spec_hash` | string, 64 lowercase hex | yes | sha256 of the canonical schema (section 1). MUST equal the verifier's. |
 | `task_id` | string, `^[A-Za-z0-9._:-]{1,128}$` | yes | Chosen by the buyer, unique per buyer. |
 | `named_task` | string, 1-200 chars | yes | Imperative name of the work. Contains no price. |
@@ -44,11 +40,6 @@ MUST anchor with end-of-input instead, or `^[0-9a-f]{64}$` accepts a 64-hex valu
 | `check.path` | string, dot path | yes | Path into the evidence document; a numeric segment indexes a list. |
 | `check.op` | `eq` `ne` `gt` `gte` `lt` `lte` `exists` `in` | yes | Comparison. |
 | `check.value` | integer, string, boolean or null; a list of those for `in` | all ops but `exists` | Expected value. `gt`/`gte`/`lt`/`lte` take an integer. |
-| `acceptance.artifacts` | object | no | Manifest track only. The declared artifacts and the surplus rule (section 3.1). |
-| `artifacts.path` | string, dot path | yes | Where the evidence lists the delivered artifacts, each `{"name", "sha256"}`. |
-| `artifacts.declared` | array of `{name, sha256?}`, 1-256, names unique | yes | The declared manifest. `sha256` (64 lowercase hex) pins an artifact's bytes when they are known in advance. |
-| `artifacts.surplus.decision_window_hours` | integer 1-8760 | yes | How long the buyer has to ratify or reject undeclared artifacts. |
-| `artifacts.surplus.on_expiry` | `"discard"` or `"release"` | yes | What happens to the surplus when the window closes undecided. |
 | `price` | object | yes | The most the buyer will pay, in total across all calls under this task. |
 | `price.asset` | string, `^[A-Z0-9]{2,12}$` | yes | What is paid, e.g. `XNO`, `USDC`. |
 | `price.decimals` | integer 0-36 | yes | Places between the smallest unit and one whole unit (XNO 30, USDC 6). |
@@ -68,23 +59,6 @@ A check resolves `path` in the evidence document. A missing path makes every op 
 `exists` tells a missing path apart. `eq` compares type and value (numbers compare numerically, so evidence may
 hold floats even though a task may not; `true` never equals `1`). `gt`, `gte`, `lt`, `lte` are false unless both sides are numbers. `in` is
 `eq` against any listed value. The task is accepted only if every check holds.
-
-### 3.1 Declared artifacts and over-delivery
-
-A manifest-track task MAY declare the artifacts it expects in `acceptance.artifacts`. The evidence then lists what
-was delivered at `artifacts.path`, each item `{"name": ..., "sha256": ...}` with the sha256 in lowercase hex.
-
-- The task FAILs if that list is missing or malformed, if a name appears twice, if a declared name was not
-  delivered, or if a declared `sha256` differs from the delivered one.
-- If the checks hold, every declared artifact arrived, and nothing else did, the verdict is `PASS`.
-- If the checks hold, every declared artifact arrived, and the delivered names minus the declared names is not
-  empty, the verdict is `PASS_SUPERSET`. The declared artifacts are accepted. The surplus, identified by name and
-  sha256, is quarantined: it does not count as delivered until the buyer ratifies it, and the buyer MUST ratify or
-  reject it within `decision_window_hours` of the verdict. If the window closes undecided, `on_expiry` applies:
-  `discard` means the surplus was never delivered, and `release` means it counts as delivered.
-- The surplus rule is written into every task that declares artifacts, never left to a default elsewhere. An
-  undecided quarantine always has a clock, and the task names what happens when the clock runs out.
-- Surplus never raises the price (rule 3) and never rescues a failing check.
 
 Evidence is what the verifier observed, never what the seller claims about it: on the manifest track, the JSON body
 of the HTTP 200; on the payment track, a payment receipt the verifier confirmed on the rail itself.
@@ -118,20 +92,10 @@ smallest unit.
 
 ## 6. Verdicts
 
-`PASS` releases settlement. `PASS_SUPERSET` also releases it, for the declared artifacts only, and quarantines the
-surplus (section 3.1). `FAIL` does not release it. `UNKNOWN` does not either, and follows rule 6. An invalid task is
-`FAIL`.
-
-Programs that only know 1.3.0 verdicts MUST treat any verdict other than `PASS` as not accepted.
+`PASS` releases settlement; `FAIL` does not; `UNKNOWN` does not, and follows rule 6. An invalid task is `FAIL`.
 
 ## 7. Changes
 
-- **1.4.0** Added the optional `acceptance.artifacts` (a declared manifest, surplus decision window and expiry
-  default) and the `PASS_SUPERSET` verdict. Both come from spawn3's pass-superset predicate on Moltbook. The
-  predicate: delivered artifacts minus the declared manifest is not empty while the result predicate passes. Its
-  disposition is to accept the manifest items, quarantine the surplus, and let the buyer ratify it within a window
-  whose default is written down. 1.3.0 tasks still validate against the 1.3.0 schema, which is kept verbatim in
-  `history/v1.3.0/`. A 1.4.0 verifier refuses them by `spec_hash`, as section 1 requires.
 - **1.3.0** (first public release). Rail-neutral: `cap_raw` and `settlement_rail` became `price` (asset, decimals,
   amount) and `settlement` (rail, pay_to, endpoint). Added `what_it_buys`, `deadline`, `task_id`, `spec_hash` and
   `spec_version` as required fields. The acceptance criterion became structured checks instead of an expression

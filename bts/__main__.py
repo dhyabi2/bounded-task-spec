@@ -4,7 +4,8 @@
   bts hash <file.json>                          sha256 of the file's canonical JSON
   bts spec-hash                                 sha256 of the pinned schema
   bts evaluate <task.json> <status> <evidence.json> [--at YYYY-MM-DDTHH:MM:SSZ]
-                                                prints PASS / FAIL / UNKNOWN; exit 0 PASS, 1 FAIL, 3 UNKNOWN
+                                                prints PASS / FAIL / UNKNOWN / PASS_SUPERSET;
+                                                exit 0 PASS, 1 FAIL, 3 UNKNOWN, 4 PASS_SUPERSET
 """
 import sys
 
@@ -40,7 +41,7 @@ def main(argv=None):
             print(verdict)
             for r in reasons:
                 print(f"  {r}")
-            return {bts.PASS: 0, bts.FAIL: 1, bts.UNKNOWN: 3}[verdict]
+            return {bts.PASS: 0, bts.FAIL: 1, bts.UNKNOWN: 3, bts.PASS_SUPERSET: 4}[verdict]
     except (bts.BTSError, OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

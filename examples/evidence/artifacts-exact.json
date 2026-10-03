@@ -1,0 +1,2 @@
+{"report": {"tests_total": 7, "tests_failed": 0},
+ "artifacts": [{"name": "report.json", "sha256": "845e91831319e89c4d656bdb80c278ac09a7230d61e5dfd2e1b1fbb436ac8917"}, {"name": "schema.json", "sha256": "df0ad6e43880f09c90ebf95f19110178aba6890df0010ebda7485029e2b543b4"}]}

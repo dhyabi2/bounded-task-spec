@@ -1,0 +1,27 @@
+{
+  "spec_version": "1.4.0",
+  "spec_hash": "6ea18ba671119d9b2fe1f0cbfde4f26954e1050743fa307eaac81c2c580ee279",
+  "task_id": "example-artifacts-001",
+  "named_task": "Check an x402 manifest and deliver the report with the schema it was checked against",
+  "deliverable": "Two files: report.json (pass/fail per required field) and schema.json (the pinned schema used).",
+  "acceptance": {
+    "track": "manifest",
+    "checks": [
+      {"path": "report.tests_total", "op": "gt", "value": 0},
+      {"path": "report.tests_failed", "op": "eq", "value": 0}
+    ],
+    "artifacts": {
+      "path": "artifacts",
+      "declared": [
+        {"name": "report.json"},
+        {"name": "schema.json", "sha256": "df0ad6e43880f09c90ebf95f19110178aba6890df0010ebda7485029e2b543b4"}
+      ],
+      "surplus": {"decision_window_hours": 72, "on_expiry": "discard"}
+    }
+  },
+  "price": {"asset": "XNO", "decimals": 30, "amount": "800000000000000000000000000"},
+  "deadline": "2026-12-31T23:59:59Z",
+  "settlement": {"rail": "nano", "pay_to": "nano_EXAMPLE_PLACEHOLDER_NOT_A_REAL_ADDRESS"},
+  "what_it_buys": "The two declared files, once. Anything else delivered is quarantined until the buyer ratifies it.",
+  "note": "Illustrative only. The address is a placeholder; do not send anything to it."
+}
