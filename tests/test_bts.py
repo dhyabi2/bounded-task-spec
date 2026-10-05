@@ -371,6 +371,31 @@ class Artifacts(unittest.TestCase):
             t["acceptance"]["artifacts"]["declared"] = declared
             self.assertTrue(bts.validate(t), declared)
 
+    def test_a_declared_name_that_is_not_a_string_is_an_error_not_an_exception(self):
+        """validate() promises a list of error strings, and the CLI's whole contract is
+        its exit code. The uniqueness rule put every declared `name` into a set, so a
+        name written as a list or an object raised TypeError straight out of validate()
+        and evaluate() -- and TypeError is not one of (BTSError, OSError, ValueError),
+        the exceptions the CLI handles, so it reached the reader as a traceback with no
+        verdict on stdout at all."""
+        for name in ([], {}, ["report.json"]):
+            t = copy.deepcopy(self.task)
+            t["acceptance"]["artifacts"]["declared"][0]["name"] = name
+            self.assertIn("$.acceptance.artifacts.declared[0].name: must be string", bts.validate(t))
+            self.assertEqual(bts.evaluate(t, 200, self.exact)[0], bts.FAIL)
+
+    def test_the_cli_reports_such_a_task_as_invalid_rather_than_crashing(self):
+        t = copy.deepcopy(self.task)
+        t["acceptance"]["artifacts"]["declared"][0]["name"] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "task.json")
+            with open(path, "w") as handle:
+                json.dump(t, handle)
+            out = cli("validate", path)
+        self.assertEqual(out.stderr, "")
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("must be string", out.stdout)
+
     def test_artifacts_belong_to_the_manifest_track_only(self):
         self.assertTrue(bts.validate(bts.load(ex("invalid", "artifacts-on-payment-track.json"))))
 

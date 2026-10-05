@@ -222,7 +222,11 @@ def validate(task, schema=None):
             errors.append("$.acceptance.artifacts: only the manifest track declares artifacts")
         declared = artifacts.get("declared")
         if isinstance(declared, list):
-            names = [d.get("name") for d in declared if isinstance(d, dict)]
+            # A name that is not a string is already reported by _walk; only the names
+            # that have the declared type take part in the uniqueness rule, or an
+            # unhashable one raises TypeError out of a function that returns errors.
+            names = [d["name"] for d in declared
+                     if isinstance(d, dict) and isinstance(d.get("name"), str)]
             if len(names) != len(set(names)):
                 errors.append("$.acceptance.artifacts.declared: names must be unique")
     return errors
