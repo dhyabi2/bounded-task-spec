@@ -63,6 +63,12 @@ discarded or released if nobody decides (SPEC.md section 3.1).
 
     python3 -m unittest discover -s tests
 
+[![tests](https://github.com/dhyabi2/bounded-task-spec/actions/workflows/test.yml/badge.svg)](https://github.com/dhyabi2/bounded-task-spec/actions/workflows/test.yml)
+
+Every push and pull request runs them on each Python the validator claims above to support,
+one matrix leg per version, plus every command this README tells a reader to run. The suite
+itself pins that pairing: raise the floor in one place and the other turns red.
+
 ## Maintainers
 
 Maintained by the team behind [getunstuck.space](https://getunstuck.space). The spec grew out of a public
