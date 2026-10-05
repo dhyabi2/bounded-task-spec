@@ -297,6 +297,22 @@ class Hygiene(unittest.TestCase):
             for host in re.findall(r"https://([^/\"]+)", text):
                 self.assertTrue(host.endswith(".example"), (path, host))
 
+    def test_invalid_examples_carry_the_current_spec_version(self):
+        """An invalid example left at an older spec_version is refused for that rather
+        than for the thing it was written to demonstrate, and so stops guarding it.
+        `spec-hash-trailing-newline.json` was added on one branch while 1.4.0 bumped
+        the others on another, and the merge left it behind."""
+        for path in glob.glob(ex("invalid", "*.json")):
+            try:
+                task = bts.load(path)
+            except bts.BTSError:
+                continue  # float-amount.json is refused before it is a document at all
+            self.assertEqual(task.get("spec_version"), bts.SPEC_VERSION, path)
+
+    def test_the_trailing_newline_example_is_refused_for_the_newline_and_nothing_else(self):
+        errors = bts.validate(bts.load(ex("invalid", "spec-hash-trailing-newline.json")))
+        self.assertEqual(errors, ["$.spec_hash: does not match ^[0-9a-f]{64}$"])
+
     def test_examples_carry_the_current_spec_hash(self):
         for path in glob.glob(ex("valid", "*.json")):
             self.assertEqual(bts.load(path)["spec_hash"], bts.spec_hash(), path)
