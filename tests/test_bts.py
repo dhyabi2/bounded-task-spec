@@ -1,13 +1,17 @@
 """Laws for bounded-task-spec. Run: python3 -m unittest discover -s tests"""
+import ast
 import copy
 import datetime
 import glob
 import hashlib
+import importlib.util
 import json
 import os
 import re
 import subprocess
 import sys
+import sysconfig
+import tempfile
 import unittest
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -388,3 +392,159 @@ class Artifacts(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# --- The two things the README promises about the runtime -------------------------
+#
+# "reference validator, Python 3.8+, standard library only". Both halves were true
+# and neither had an assertion anywhere near it, which is the same shape as a
+# promise that has already drifted: nothing can tell them apart until the day one
+# changes. These helpers are derived from what is on disk - a new file under `bts/`
+# or a new matrix leg is covered without being named here.
+
+
+def package_sources():
+    """Every file that ships as the validator, read off the disk."""
+    found = sorted(glob.glob(os.path.join(ROOT, "bts", "**", "*.py"), recursive=True))
+    found.append(os.path.join(ROOT, "bin", "bts"))  # the same CLI, without the .py
+    return found
+
+
+def top_level_imports(path):
+    """The top-level module names a source file imports. Relative imports are the
+    package's own business, so only absolute ones count."""
+    with open(path, "rb") as handle:
+        tree = ast.parse(handle.read(), filename=path)
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            names.add(node.module.split(".")[0])
+    return names
+
+
+def where_a_module_comes_from(name):
+    """"stdlib", "this package", or where a non-stdlib module was actually found.
+    Resolved through the import system rather than compared against a hand-written
+    list of module names, so a standard library that grows needs no edit here."""
+    if name == "bts":
+        return "this package"
+    if name in sys.builtin_module_names:
+        return "stdlib"
+    try:
+        spec = importlib.util.find_spec(name)
+    except (ImportError, ValueError):
+        spec = None
+    if spec is None:
+        return "not installed"
+    origin = spec.origin or ""
+    if origin in ("built-in", "frozen"):
+        return "stdlib"
+    real = os.path.realpath(origin)
+    parts = real.split(os.sep)
+    # site-packages sits UNDER the stdlib directory in some layouts, so being
+    # inside it is not enough on its own.
+    if "site-packages" not in parts and "dist-packages" not in parts:
+        stdlib = os.path.realpath(sysconfig.get_paths()["stdlib"])
+        if os.path.commonpath([stdlib, real]) == stdlib:
+            return "stdlib"
+    return os.path.dirname(real)
+
+
+def readme_version_floor(text):
+    """The lowest Python the README promises, as (major, minor)."""
+    found = re.search(r"Python (\d+)\.(\d+)\+", text)
+    if not found:
+        raise AssertionError("the README no longer states a Python floor at all")
+    return int(found.group(1)), int(found.group(2))
+
+
+def ci_matrix_versions(text):
+    """The interpreter versions the workflow's matrix actually runs."""
+    found = re.search(r"python-version:\s*\[([^\]]+)\]", text)
+    if not found:
+        raise AssertionError("the workflow no longer declares a python-version matrix")
+    legs = []
+    for item in found.group(1).split(","):
+        major, minor = item.strip().strip("\"'").split(".")
+        legs.append((int(major), int(minor)))
+    return sorted(legs)
+
+
+class AdvertisedRuntime(unittest.TestCase):
+    """The README's "Python 3.8+, standard library only" is measured, not asserted."""
+
+    WORKFLOW = os.path.join(ROOT, ".github", "workflows", "test.yml")
+
+    def workflow(self):
+        """Read the workflow, or say in one line that the suite has stopped running
+        on a runner at all - which is the condition this class exists to prevent."""
+        if not os.path.exists(self.WORKFLOW):
+            self.fail("%s is missing, so nothing runs the laws on any interpreter but "
+                      "the author's" % os.path.relpath(self.WORKFLOW, ROOT))
+        return open(self.WORKFLOW).read()
+
+    def test_the_validator_imports_nothing_but_the_standard_library(self):
+        for path in package_sources():
+            for name in sorted(top_level_imports(path)):
+                self.assertIn(
+                    where_a_module_comes_from(name), ("stdlib", "this package"),
+                    "%s imports `%s`, which is not in the standard library; the README "
+                    "promises the validator needs nothing installed"
+                    % (os.path.relpath(path, ROOT), name))
+
+    def test_a_third_party_import_would_be_caught(self):
+        """The control for the law above: it has to fail on something."""
+        with tempfile.TemporaryDirectory() as tmp:
+            planted = os.path.join(tmp, "planted.py")
+            # Assembled rather than written out, so this fixture is not itself a
+            # source file that imports a third-party module.
+            with open(planted, "w") as handle:
+                handle.write("import " + "requests" + "\nfrom " + "numpy" + " import array\n")
+            names = top_level_imports(planted)
+            self.assertEqual(names, {"requests", "numpy"})
+            for name in names:
+                self.assertNotIn(where_a_module_comes_from(name), ("stdlib", "this package"))
+        # and the other direction: the standard library reads as the standard library
+        self.assertEqual(where_a_module_comes_from("json"), "stdlib")
+        self.assertEqual(where_a_module_comes_from("sys"), "stdlib")
+        self.assertEqual(where_a_module_comes_from("bts"), "this package")
+
+    def test_ci_runs_every_version_the_readme_promises(self):
+        floor = readme_version_floor(open(os.path.join(ROOT, "README.md")).read())
+        legs = ci_matrix_versions(self.workflow())
+        self.assertEqual(legs[0], floor,
+                         "the README promises Python %d.%d+ but the lowest version CI "
+                         "runs is %d.%d - one of the two is wrong" % (floor + legs[0]))
+        self.assertEqual({major for major, _ in legs}, {floor[0]})
+        minors = [minor for _, minor in legs]
+        self.assertEqual(minors, list(range(minors[0], minors[-1] + 1)),
+                         "the matrix skips a version between its floor and its ceiling")
+
+    def test_the_matrix_parser_catches_a_floor_that_drifted(self):
+        """The control for the law above, on synthetic text - a real drift would
+        otherwise only show up the day somebody edits one file and not the other."""
+        self.assertEqual(readme_version_floor("validator, Python 3.8+, standard"), (3, 8))
+        self.assertEqual(ci_matrix_versions('python-version: ["3.8", "3.9"]'), [(3, 8), (3, 9)])
+        # a README raised without the matrix following it
+        self.assertNotEqual(readme_version_floor("Python 3.10+, standard library only"),
+                            ci_matrix_versions('python-version: ["3.8", "3.9"]')[0])
+        # a gap in the middle
+        legs = ci_matrix_versions('python-version: ["3.8", "3.10"]')
+        minors = [minor for _, minor in legs]
+        self.assertNotEqual(minors, list(range(minors[0], minors[-1] + 1)))
+        for bad in ("standard library only", "Python 3+"):
+            with self.assertRaises(AssertionError):
+                readme_version_floor(bad)
+        with self.assertRaises(AssertionError):
+            ci_matrix_versions("python-version: 3.8")
+
+    def test_ci_runs_the_suite_the_readme_documents(self):
+        """A workflow that ran some other command would be green about nothing the
+        README told a reader to expect."""
+        readme = open(os.path.join(ROOT, "README.md")).read()
+        workflow = self.workflow()
+        documented = re.search(r"^ +(python3 -m unittest discover[^\n]*)$", readme, re.M)
+        self.assertIsNotNone(documented, "the README no longer documents how to run the laws")
+        self.assertIn(documented.group(1).strip(), workflow)
