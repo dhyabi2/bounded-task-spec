@@ -84,7 +84,21 @@ def canonical(obj):
             for v in o:
                 check(v)
     check(obj)
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    text = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    try:
+        return text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        # An unpaired surrogate survives `loads` - `json` accepts "\ud800" - but has
+        # no UTF-8 encoding, so the document has no canonical form and cannot be
+        # hashed. That is the same kind of refusal as a float, and it has to be
+        # raised the same way: `validate()` wraps this call in `except BTSError`
+        # precisely so a canonicalisation failure comes back as an error list, and
+        # a UnicodeEncodeError walked straight through that handler and out of a
+        # function whose contract is "return a list of error strings".
+        raise BTSError(
+            "strings must be encodable as UTF-8, so a task cannot carry an "
+            f"unpaired surrogate ({exc.reason} at position {exc.start})"
+        ) from None
 
 
 def sha256_of(obj):
