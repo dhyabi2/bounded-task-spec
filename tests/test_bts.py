@@ -44,6 +44,31 @@ class Canonical(unittest.TestCase):
             with self.assertRaises(bts.BTSError, msg=text):
                 bts.loads(text)
 
+    def test_an_unpaired_surrogate_is_refused_as_a_canonicalisation_failure(self):
+        """`json` accepts "\\ud800", UTF-8 cannot encode it, so there is no canonical form.
+
+        `canonical()` promised "UTF-8" bytes (SPEC.md section 2) and raised
+        `UnicodeEncodeError` instead of `BTSError` on this input, so the refusal
+        came out as the wrong kind of exception - see the two laws in `Validate`
+        for why that mattered to a caller.
+        """
+        doc = bts.loads('{"note": "\\ud800"}')
+        self.assertEqual(doc, {"note": "\ud800"})
+        with self.assertRaises(bts.BTSError) as caught:
+            bts.canonical(doc)
+        self.assertIn("surrogate", str(caught.exception))
+        with self.assertRaises(bts.BTSError):
+            bts.sha256_of(doc)
+
+    def test_a_surrogate_pair_written_as_escapes_is_still_canonicalised(self):
+        """The control: a *paired* surrogate escape is an ordinary character and
+        must keep hashing exactly as it did, so the guard above refuses only what
+        has no UTF-8 form."""
+        doc = bts.loads('{"note": "\\ud83d\\ude00"}')
+        self.assertEqual(doc, {"note": "\U0001f600"})
+        self.assertEqual(bts.canonical(doc), '{"note":"\U0001f600"}'.encode("utf-8"))
+        self.assertEqual(bts.sha256_of(doc), bts.sha256_of({"note": "\U0001f600"}))
+
     def test_spec_hash_is_sha256_of_canonical_schema(self):
         schema = json.load(open(bts.SCHEMA_PATH))
         want = hashlib.sha256(json.dumps(schema, sort_keys=True, separators=(",", ":"),
@@ -160,6 +185,41 @@ class Validate(unittest.TestCase):
     def test_non_object_documents(self):
         for doc in ([], "x", 1, None):
             self.assertTrue(bts.validate(doc))
+
+
+class ValidateCanonicalisationFailure(unittest.TestCase):
+    """`validate()` says "Return a list of error strings"; it raised instead.
+
+    `validate()` wraps its `canonical(task)` call in `except BTSError` so that a
+    document with no canonical form comes back as an error list. A lone surrogate
+    raised `UnicodeEncodeError`, which is not a `BTSError`, so it walked through
+    that handler and out of the function. In a paid agent-to-agent task the task
+    document is the counterparty's, so a verifier calling `validate()` on it the
+    way this repository's own CLI does aborted rather than recording a refusal.
+    """
+
+    SURROGATE = '{"note": "\\ud800"}'
+
+    def test_validate_returns_an_error_list_rather_than_raising(self):
+        errors = bts.validate(bts.loads(self.SURROGATE))
+        self.assertTrue(errors, "a document with no canonical form must be invalid")
+        self.assertTrue(errors[0].startswith("$: "), errors)
+        self.assertIn("surrogate", errors[0])
+
+    def test_evaluate_returns_a_verdict_rather_than_raising(self):
+        verdict, reasons = bts.evaluate(bts.loads(self.SURROGATE), 200, {"receipt": {}})
+        self.assertEqual(verdict, bts.FAIL)
+        self.assertTrue(reasons)
+
+    def test_the_cli_refuses_it_with_a_message_and_no_traceback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "task.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(self.SURROGATE)
+            for command in ("validate", "hash"):
+                got = cli(command, path)
+                self.assertNotIn("Traceback", got.stderr, f"{command}: {got.stderr}")
+                self.assertNotEqual(got.returncode, 0, command)
 
 
 class Evaluate(unittest.TestCase):
