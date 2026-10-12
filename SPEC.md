@@ -133,6 +133,8 @@ Programs that only know 1.3.0 verdicts MUST treat any verdict other than `PASS` 
   disposition is to accept the manifest items, quarantine the surplus, and let the buyer ratify it within a window
   whose default is written down. 1.3.0 tasks still validate against the 1.3.0 schema, which is kept verbatim in
   `history/v1.3.0/`. A 1.4.0 verifier refuses them by `spec_hash`, as section 1 requires.
+  It also states a limit implementations already hit: arrays and objects nest at most 256 deep, and a deeper
+  document is unreadable (section 2).
 - **1.3.0** (first public release). Rail-neutral: `cap_raw` and `settlement_rail` became `price` (asset, decimals,
   amount) and `settlement` (rail, pay_to, endpoint). Added `what_it_buys`, `deadline`, `task_id`, `spec_hash` and
   `spec_version` as required fields. The acceptance criterion became structured checks instead of an expression

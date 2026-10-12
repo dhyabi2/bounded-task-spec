@@ -79,9 +79,13 @@ def _check_depth(text, what):
 
 def loads(text):
     """Parse JSON strictly: no duplicate keys, no floats, no NaN/Infinity."""
-    if isinstance(text, str):
-        _check_depth(text, "not valid JSON")
     try:
+        if isinstance(text, (bytes, bytearray)):
+            # Decode the way json.loads does (UTF-8, -16 or -32, detected), so bytes meet the same depth limit and
+            # the same errors as the equivalent str.
+            text = text.decode(json.detect_encoding(text), "surrogatepass")
+        if isinstance(text, str):
+            _check_depth(text, "not valid JSON")
         return json.loads(text, object_pairs_hook=_reject_duplicates, parse_float=_reject_float,
                           parse_constant=_reject_constant)
     except BTSError:
@@ -91,7 +95,7 @@ def loads(text):
     except RecursionError:
         raise BTSError("not valid JSON: nested too deeply") from None
     except ValueError as exc:
-        # An integer longer than `sys.get_int_max_str_digits()` (Python 3.11+).
+        # UnicodeDecodeError from bytes, or an integer longer than `sys.get_int_max_str_digits()` (Python 3.11+).
         raise BTSError(f"not valid JSON: {exc}") from None
 
 

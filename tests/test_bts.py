@@ -298,6 +298,21 @@ class EveryRefusalIsABTSError(unittest.TestCase):
             with self.assertRaises(bts.BTSError, msg=repr(inner)):
                 bts.loads(json.dumps(over))
 
+    def test_bytes_meet_the_same_depth_limit_as_str(self):
+        for depth, ok in ((bts.MAX_DEPTH, True), (bts.MAX_DEPTH + 1, False)):
+            text = "[" * depth + "]" * depth
+            for encoding in ("utf-8", "utf-16", "utf-32-le"):
+                for form in (bytes, bytearray):
+                    data = form(text.encode(encoding))
+                    if ok:
+                        self.assertEqual(bts.loads(data), bts.loads(text))
+                    else:
+                        with self.assertRaises(bts.BTSError) as caught:
+                            bts.loads(data)
+                        self.assertIn(f"nested deeper than {bts.MAX_DEPTH}", str(caught.exception))
+        with self.assertRaises(bts.BTSError):
+            bts.loads(b'["\xff"]')
+
     def test_the_depth_scan_is_linear(self):
         # An unclosed string of escaped quotes made the old string-skipping regex backtrack quadratically: 160 KB
         # took about 100 s. It is a decode error, found in milliseconds.
