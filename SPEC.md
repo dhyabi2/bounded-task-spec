@@ -25,7 +25,8 @@ cite the `task_hash`.
 
 ## 2. Fields
 
-Unknown fields MUST be rejected. Floats MUST NOT appear anywhere in a task; amounts are integer strings.
+Unknown fields MUST be rejected. Floats MUST NOT appear anywhere in a task; amounts are integer strings. Arrays and
+objects MUST NOT nest more than 256 deep (the outermost counts as 1); a deeper document is unreadable (`bts` exits 2).
 
 The `pattern` constraints in the schema are ECMA-262 regular expressions, in which `$` matches only at the
 very end of the string. An implementation whose `$` also matches before a trailing newline (Python's does)
@@ -132,6 +133,8 @@ Programs that only know 1.3.0 verdicts MUST treat any verdict other than `PASS` 
   disposition is to accept the manifest items, quarantine the surplus, and let the buyer ratify it within a window
   whose default is written down. 1.3.0 tasks still validate against the 1.3.0 schema, which is kept verbatim in
   `history/v1.3.0/`. A 1.4.0 verifier refuses them by `spec_hash`, as section 1 requires.
+  It also states a limit implementations already hit: arrays and objects nest at most 256 deep, and a deeper
+  document is unreadable (section 2).
 - **1.3.0** (first public release). Rail-neutral: `cap_raw` and `settlement_rail` became `price` (asset, decimals,
   amount) and `settlement` (rail, pay_to, endpoint). Added `what_it_buys`, `deadline`, `task_id`, `spec_hash` and
   `spec_version` as required fields. The acceptance criterion became structured checks instead of an expression
