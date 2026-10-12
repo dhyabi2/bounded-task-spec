@@ -46,7 +46,14 @@ def loads(text):
     try:
         return json.loads(text, object_pairs_hook=_reject_duplicates, parse_float=_reject_float,
                           parse_constant=_reject_constant)
+    except BTSError:
+        raise
     except json.JSONDecodeError as exc:
+        raise BTSError(f"not valid JSON: {exc}") from None
+    except RecursionError:
+        raise BTSError("not valid JSON: nested too deeply") from None
+    except ValueError as exc:
+        # An integer longer than `sys.get_int_max_str_digits()` (Python 3.11+).
         raise BTSError(f"not valid JSON: {exc}") from None
 
 
@@ -66,7 +73,11 @@ def load_evidence(path):
         raw = f.read()
     try:
         return json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicates, parse_constant=_reject_constant)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except BTSError:
+        raise
+    except RecursionError:
+        raise BTSError("evidence is not valid UTF-8 JSON: nested too deeply") from None
+    except ValueError as exc:  # UnicodeDecodeError, JSONDecodeError, an over-long integer
         raise BTSError(f"evidence is not valid UTF-8 JSON: {exc}") from None
 
 
@@ -83,8 +94,17 @@ def canonical(obj):
         elif isinstance(o, list):
             for v in o:
                 check(v)
-    check(obj)
-    text = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    try:
+        check(obj)
+        text = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    except BTSError:
+        raise
+    except RecursionError:
+        raise BTSError("nested too deeply to canonicalize") from None
+    except (TypeError, ValueError) as exc:
+        # TypeError: bytes, a set or another non-JSON value; ValueError: an integer
+        # longer than `sys.get_int_max_str_digits()`.
+        raise BTSError(f"cannot be canonicalized: {exc}") from None
     try:
         return text.encode("utf-8")
     except UnicodeEncodeError as exc:

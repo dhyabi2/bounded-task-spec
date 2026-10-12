@@ -222,6 +222,62 @@ class ValidateCanonicalisationFailure(unittest.TestCase):
                 self.assertNotEqual(got.returncode, 0, command)
 
 
+class EveryRefusalIsABTSError(unittest.TestCase):
+    """`loads`, `load_evidence` and `canonical` refuse with `BTSError`, whatever the input.
+
+    Deeply nested JSON raised `RecursionError` out of `loads`, so `bts validate`
+    crashed with a traceback and exit 1 - the code that means "invalid", not
+    "unreadable". An integer longer than Python's 4300-digit limit raised a plain
+    `ValueError`, and `canonical()` raised `TypeError` for bytes or a set.
+    """
+
+    DEEP = "[" * 100000 + "]" * 100000
+    HUGE_INT = '{"n": ' + "1" * 5000 + "}"
+
+    def _evidence(self, text):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "evidence.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            return bts.load_evidence(path)
+
+    def test_deep_nesting_is_a_btserror(self):
+        with self.assertRaises(bts.BTSError):
+            bts.loads(self.DEEP)
+        with self.assertRaises(bts.BTSError):
+            self._evidence(self.DEEP)
+        deep = []
+        for _ in range(100000):
+            deep = [deep]
+        with self.assertRaises(bts.BTSError):
+            bts.canonical(deep)
+
+    @unittest.skipUnless(hasattr(sys, "get_int_max_str_digits"), "no integer digit limit before Python 3.11")
+    def test_an_over_long_integer_is_a_btserror(self):
+        with self.assertRaises(bts.BTSError):
+            bts.loads(self.HUGE_INT)
+        with self.assertRaises(bts.BTSError):
+            self._evidence(self.HUGE_INT)
+        with self.assertRaises(bts.BTSError):
+            bts.canonical({"n": 10 ** 5000})
+
+    def test_a_value_json_cannot_hold_is_a_btserror(self):
+        for value in (b"bytes", {1, 2}, object()):
+            with self.assertRaises(bts.BTSError, msg=repr(value)):
+                bts.canonical({"v": value})
+        self.assertTrue(bts.validate({"v": b"bytes"})[0].startswith("$: "))
+
+    def test_the_cli_calls_deep_nesting_unreadable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "deep.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(self.DEEP)
+            for command in ("validate", "hash"):
+                got = cli(command, path)
+                self.assertNotIn("Traceback", got.stderr, f"{command}: {got.stderr}")
+                self.assertEqual(got.returncode, 2, f"{command}: {got.stderr}")
+
+
 class Evaluate(unittest.TestCase):
     def setUp(self):
         self.manifest = bts.load(ex("valid", "manifest-nano.json"))
