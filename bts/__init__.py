@@ -41,8 +41,27 @@ def _reject_constant(text):
     raise BTSError(f"non-standard JSON constant: {text}")
 
 
+# How deep a document may nest. Python 3.14 bounds the json parser by the C stack, not by a fixed count, so
+# without our own limit the same document parses on one build and raises RecursionError on another.
+MAX_DEPTH = 256
+_STRING = re.compile(r'"(?:[^"\\]|\\.)*"')
+
+
+def _check_depth(text, what):
+    depth = 0
+    for ch in _STRING.sub("", text):
+        if ch in "[{":
+            depth += 1
+            if depth > MAX_DEPTH:
+                raise BTSError(f"{what}: nested deeper than {MAX_DEPTH}")
+        elif ch in "]}":
+            depth -= 1
+
+
 def loads(text):
     """Parse JSON strictly: no duplicate keys, no floats, no NaN/Infinity."""
+    if isinstance(text, str):
+        _check_depth(text, "not valid JSON")
     try:
         return json.loads(text, object_pairs_hook=_reject_duplicates, parse_float=_reject_float,
                           parse_constant=_reject_constant)
@@ -72,7 +91,9 @@ def load_evidence(path):
     with open(path, "rb") as f:
         raw = f.read()
     try:
-        return json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicates, parse_constant=_reject_constant)
+        text = raw.decode("utf-8")
+        _check_depth(text, "evidence is not valid UTF-8 JSON")
+        return json.loads(text, object_pairs_hook=_reject_duplicates, parse_constant=_reject_constant)
     except BTSError:
         raise
     except RecursionError:
@@ -83,17 +104,19 @@ def load_evidence(path):
 
 def canonical(obj):
     """Canonical bytes: keys sorted, no whitespace, UTF-8, no floats."""
-    def check(o):
+    def check(o, depth=0):
+        if depth > MAX_DEPTH:
+            raise BTSError(f"nested deeper than {MAX_DEPTH}")
         if isinstance(o, float):
             raise BTSError("floats cannot be canonicalized")
         if isinstance(o, dict):
             for k, v in o.items():
                 if not isinstance(k, str):
                     raise BTSError("object keys must be strings")
-                check(v)
+                check(v, depth + 1)
         elif isinstance(o, list):
             for v in o:
-                check(v)
+                check(v, depth + 1)
     try:
         check(obj)
         text = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)

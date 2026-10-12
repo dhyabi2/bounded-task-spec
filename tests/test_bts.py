@@ -267,6 +267,18 @@ class EveryRefusalIsABTSError(unittest.TestCase):
                 bts.canonical({"v": value})
         self.assertTrue(bts.validate({"v": b"bytes"})[0].startswith("$: "))
 
+    def test_the_depth_limit_is_the_same_on_every_interpreter(self):
+        # Python 3.14 bounds the json parser by the C stack, so 100000 levels parsed on one CI build and raised on
+        # another; the limit is ours now, and brackets inside strings do not count toward it.
+        ok = "[" * bts.MAX_DEPTH + "]" * bts.MAX_DEPTH
+        self.assertEqual(bts.canonical(bts.loads(ok)), ok.encode())
+        self.assertEqual(bts.loads('{"s": "' + "[" * 1000 + '\\"{"}'), {"s": "[" * 1000 + '"{'})
+        over = "[" * (bts.MAX_DEPTH + 1) + "]" * (bts.MAX_DEPTH + 1)
+        with self.assertRaises(bts.BTSError):
+            bts.loads(over)
+        with self.assertRaises(bts.BTSError):
+            self._evidence(over)
+
     def test_the_cli_calls_deep_nesting_unreadable(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "deep.json")
