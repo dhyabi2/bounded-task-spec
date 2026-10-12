@@ -44,13 +44,32 @@ def _reject_constant(text):
 # How deep a document may nest. Python 3.14 bounds the json parser by the C stack, not by a fixed count, so
 # without our own limit the same document parses on one build and raises RecursionError on another.
 MAX_DEPTH = 256
-_STRING = re.compile(r'"(?:[^"\\]|\\.)*"')
+# The characters the depth scan has to look at; everything else is skipped by the regex engine.
+_DEPTH_TOKENS = re.compile(r'[\[\]{}"\\]')
 
 
 def _check_depth(text, what):
+    """Refuse `text` if its arrays and objects nest deeper than MAX_DEPTH. One linear pass.
+
+    Brackets inside strings do not count. A backslash inside a string consumes the next character, whatever it is
+    (a newline included), so a malformed string is left for the decoder to report rather than miscounted here.
+    """
     depth = 0
-    for ch in _STRING.sub("", text):
-        if ch in "[{":
+    in_string = False
+    skip = -1  # the index of the character an escape consumes
+    for m in _DEPTH_TOKENS.finditer(text):
+        i = m.start()
+        if i == skip:
+            continue
+        ch = text[i]
+        if in_string:
+            if ch == "\\":
+                skip = i + 1
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch in "[{":
             depth += 1
             if depth > MAX_DEPTH:
                 raise BTSError(f"{what}: nested deeper than {MAX_DEPTH}")
@@ -105,18 +124,26 @@ def load_evidence(path):
 def canonical(obj):
     """Canonical bytes: keys sorted, no whitespace, UTF-8, no floats."""
     def check(o, depth=0):
-        if depth > MAX_DEPTH:
-            raise BTSError(f"nested deeper than {MAX_DEPTH}")
-        if isinstance(o, float):
-            raise BTSError("floats cannot be canonicalized")
+        # `depth` counts the arrays and objects from the root down to and including `o`: the count `loads` applies
+        # to text, so whatever canonical() emits, loads() reads back.
+        if isinstance(o, (dict, list)):
+            depth += 1
+            if depth > MAX_DEPTH:
+                raise BTSError(f"nested deeper than {MAX_DEPTH}")
         if isinstance(o, dict):
             for k, v in o.items():
                 if not isinstance(k, str):
                     raise BTSError("object keys must be strings")
-                check(v, depth + 1)
+                check(v, depth)
         elif isinstance(o, list):
             for v in o:
-                check(v, depth + 1)
+                check(v, depth)
+        elif isinstance(o, float):
+            raise BTSError("floats cannot be canonicalized")
+        elif not (o is None or isinstance(o, (str, int))):
+            # A tuple would be written as an array without its items being checked, so a float or NaN inside it
+            # slipped through; bytes, sets and other objects have no JSON form at all.
+            raise BTSError(f"cannot be canonicalized: {type(o).__name__} is not a JSON value")
     try:
         check(obj)
         text = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -125,8 +152,8 @@ def canonical(obj):
     except RecursionError:
         raise BTSError("nested too deeply to canonicalize") from None
     except (TypeError, ValueError) as exc:
-        # TypeError: bytes, a set or another non-JSON value; ValueError: an integer
-        # longer than `sys.get_int_max_str_digits()`.
+        # ValueError: an integer longer than `sys.get_int_max_str_digits()`. TypeError is
+        # kept as a backstop; check() already refuses every non-JSON type.
         raise BTSError(f"cannot be canonicalized: {exc}") from None
     try:
         return text.encode("utf-8")

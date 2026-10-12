@@ -12,6 +12,7 @@ import subprocess
 import sys
 import sysconfig
 import tempfile
+import time
 import unittest
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -278,6 +279,54 @@ class EveryRefusalIsABTSError(unittest.TestCase):
             bts.loads(over)
         with self.assertRaises(bts.BTSError):
             self._evidence(over)
+
+    def test_canonical_and_loads_share_one_depth_limit(self):
+        # Exactly MAX_DEPTH containers is readable both ways; one more is refused by both, whether the extra level is
+        # an empty list, a list holding a scalar, or an object.
+        def nest(depth, inner):
+            value = inner
+            for _ in range(depth - 1):
+                value = [value]
+            return value
+        for inner in ([], [1], {}, {"k": None}):
+            at = nest(bts.MAX_DEPTH, inner)
+            text = bts.canonical(at)
+            self.assertEqual(bts.loads(text.decode()), at)
+            over = [at]
+            with self.assertRaises(bts.BTSError, msg=repr(inner)):
+                bts.canonical(over)
+            with self.assertRaises(bts.BTSError, msg=repr(inner)):
+                bts.loads(json.dumps(over))
+
+    def test_the_depth_scan_is_linear(self):
+        # An unclosed string of escaped quotes made the old string-skipping regex backtrack quadratically: 160 KB
+        # took about 100 s. It is a decode error, found in milliseconds.
+        text = '"' + '\\"' * 80000
+        self.assertEqual(len(text), 160001)
+        started = time.perf_counter()
+        with self.assertRaises(bts.BTSError):
+            bts.loads(text)
+        with self.assertRaises(bts.BTSError):
+            self._evidence(text)
+        self.assertLess(time.perf_counter() - started, 1.0)
+
+    def test_an_escaped_newline_does_not_confuse_the_depth_scan(self):
+        # A backslash followed by a newline is an invalid escape; the brackets after it are still inside the string,
+        # so the decoder's error is reported, not a depth error.
+        text = '["\\\n' + "[" * 1000 + '"]'
+        with self.assertRaises(bts.BTSError) as caught:
+            bts.loads(text)
+        self.assertNotIn("nested deeper", str(caught.exception))
+        self.assertIn("escape", str(caught.exception))
+
+    def test_tuples_and_other_non_json_types_are_refused(self):
+        for value in ((1.5,), (float("nan"),), (1, 2), (), frozenset(), 1.5j, range(2)):
+            with self.assertRaises(bts.BTSError, msg=repr(value)):
+                bts.canonical(value)
+            with self.assertRaises(bts.BTSError, msg=repr(value)):
+                bts.canonical({"v": [value]})
+        self.assertTrue(bts.validate({"v": (1.5,)})[0].startswith("$: "))
+        self.assertEqual(bts.canonical({"a": [None, True, False, 0, -1, "s"]}), b'{"a":[null,true,false,0,-1,"s"]}')
 
     def test_the_cli_calls_deep_nesting_unreadable(self):
         with tempfile.TemporaryDirectory() as tmp:

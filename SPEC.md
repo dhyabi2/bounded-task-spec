@@ -25,7 +25,8 @@ cite the `task_hash`.
 
 ## 2. Fields
 
-Unknown fields MUST be rejected. Floats MUST NOT appear anywhere in a task; amounts are integer strings.
+Unknown fields MUST be rejected. Floats MUST NOT appear anywhere in a task; amounts are integer strings. Arrays and
+objects MUST NOT nest more than 256 deep (the outermost counts as 1); a deeper document is unreadable (`bts` exits 2).
 
 The `pattern` constraints in the schema are ECMA-262 regular expressions, in which `$` matches only at the
 very end of the string. An implementation whose `$` also matches before a trailing newline (Python's does)
